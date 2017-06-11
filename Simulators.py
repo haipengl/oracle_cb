@@ -367,7 +367,7 @@ class MSLRBandit(SemibanditSim):
 
 class DatasetBandit(SemibanditSim):
     DATASETS = {
-        'letter': ContextIterators.LetterContextIterator,
+#        'letter': ContextIterators.LetterContextIterator,
         'mq2008': ContextIterators.MQ2008ContextIterator,
         'mq2008val': ContextIterators.MQ2008ValContextIterator,
         'mq2007': ContextIterators.MQ2007ContextIterator,
