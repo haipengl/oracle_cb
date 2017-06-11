@@ -1,14 +1,24 @@
 import settings
 import numpy as np
 
-flist = [settings.DATA_DIR+"mslr/mslr30k_train1.txt",
-         settings.DATA_DIR+"mslr/mslr30k_train2.txt",
-         settings.DATA_DIR+"mslr/mslr30k_train3.txt",
-         settings.DATA_DIR+"mslr/mslr30k_train4.txt",
-         settings.DATA_DIR+"mslr/mslr30k_train5.txt"]
+trainlist = [settings.DATA_DIR+"mslr/mslr30k_train1.txt",
+             settings.DATA_DIR+"mslr/mslr30k_train2.txt",
+             settings.DATA_DIR+"mslr/mslr30k_train3.txt",
+             settings.DATA_DIR+"mslr/mslr30k_train4.txt",
+             settings.DATA_DIR+"mslr/mslr30k_train5.txt"]
 
-def preprocess():
+valilist = [settings.DATA_DIR+"mslr/mslr30k_vali1.txt",
+           settings.DATA_DIR+"mslr/mslr30k_vali2.txt",
+           settings.DATA_DIR+"mslr/mslr30k_vali3.txt",
+           settings.DATA_DIR+"mslr/mslr30k_vali4.txt",
+           settings.DATA_DIR+"mslr/mslr30k_vali5.txt"]
+
+def preprocess(train=True, orders=20):
     fidx = 0
+    if train:
+        flist = trainlist
+    else:
+        flist=valilist
     fname = flist[fidx] ## settings.DATA_DIR+"mslr/mslr30k_vali%d.txt" % (fnum)
     queryIds = {}
     queryDocs = {}
@@ -56,7 +66,7 @@ def preprocess():
     numDocs = min(maxDocsPerQuery, 50)
     numFeatures = maxFeatures
 
-    print("Datasets:loadTxt [INFO] Compiled statistics",
+    print("PreloadMSLR:preprocess [INFO] Compiled statistics",
           " NumQueries, NumUnique, MaxNumDocs, MaxNumFeatures: ", numQueries, len(order), numDocs, numFeatures, flush = True)
 
     docsPerQuery = np.zeros(numQueries, dtype = np.int32)
@@ -104,11 +114,23 @@ def preprocess():
         processed[queryid] += 1
         relevances[queryid,docIndex] = relevance
         features[queryid,docIndex,:] = fvec
-    np.savez_compressed(settings.DATA_DIR+'mslr/mslr30k_train.npz', relevances=relevances,
-                        features = features, docsPerQuery = docsPerQuery, queryOrder = order)
-    print("Datasets:loadTxt [INFO] Loaded"
+    if train:
+        np.savez_compressed(settings.DATA_DIR+'mslr/mslr30k_train.npz', relevances=relevances,
+                            features = features, docsPerQuery = docsPerQuery, queryOrder = order)
+    else:
+        np.savez_compressed(settings.DATA_DIR+'mslr/mslr30k_vali.npz', relevances=relevances,
+                            features = features, docsPerQuery = docsPerQuery, queryOrder = order)
+
+    print("PreloadMSLR:preprocess [INFO] Loaded"
           " [Min,Max]NumDocs: ", np.min(docsPerQuery), np.max(docsPerQuery), flush = True)
+
+    for i in range(orders):
+        o = np.random.permutation(len(docsPerQuery))
+        np.savez_compressed(settings.DATA_DIR+'mslr/mslr30k_train_%d.npz' % (i), order=o)
+
+    print("PreloadMSLR:preprocess [INFO] Generate %d shuffles" % (orders))
     return (docsPerQuery, relevances, features)
 
 if __name__=='__main__':
-    preprocess()
+    preprocess(train=True, orders=20)
+    preprocess(train=False, orders=0)
