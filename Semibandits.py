@@ -269,7 +269,7 @@ class AdaEpsGreedy(Semibandit):
         """
         
         # only deal with bandits for now
-        assert B.L == 1, "Cannot deal with semibandits"
+        assert B.L == 1, "Cannot deal with semibandits!"
         
         self.B = B
         self.link = "linear"
@@ -287,11 +287,25 @@ class AdaEpsGreedy(Semibandit):
     def init(self, T, params={}):
         """
         Initialize the current run. 
-        The EpsGreedy algorithm maintains a lot more state.
 
         Args:
         T -- Number of rounds of interaction.
         """
+        if "dev_cnt" in params.keys():
+            self.dev_cnt = params['dev_cnt']
+        else:
+            self.dev_cnt = 0.1
+        
+        if "len" in params.keys():
+            self.len = params['len']
+        else:
+            self.len = 1000
+        
+        if "base_len" in params.keys():
+            self.base_len = params['base_len']
+        else:
+            self.base_len = 100
+        
         if "eps" in params.keys():
             self.eps = params['eps']
         else:
@@ -308,7 +322,7 @@ class AdaEpsGreedy(Semibandit):
         if 'train_all' in params.keys() and params['train_all']:
             self.train_all = True
         else:
-            self.train_all = False
+            self.train_all = True #False
 
         if 'learning_alg' in params.keys():
             self.learning_alg = params['learning_alg']
@@ -324,6 +338,7 @@ class AdaEpsGreedy(Semibandit):
         if "link" in params.keys():
             self.link = params['link']
 
+        """
         self.training_points = []
         i = 4
         while True:
@@ -332,6 +347,7 @@ class AdaEpsGreedy(Semibandit):
             if np.sqrt(2)**i > T:
                 break
         print(self.training_points)
+        """
 
         self.reward = []
         self.opt_reward = []
@@ -369,38 +385,78 @@ class AdaEpsGreedy(Semibandit):
             
     def update(self, x, act, y_vec, r):
         """
-        Update the state for the algorithm.
-        We currently call the AMO whenever t is a perfect square.
+        Update the state for the algorithm.        
 
         Args:
         x -- context.
         act -- composite action (np.array of length L)
-        r_vec -- reward vector (np.array of length K)
+        y_vec -- reward vector (np.array of length K)
         """
         if self.use_reward_features:
             full_rvec = np.zeros(self.B.K)
             full_rvec[act] = y_vec ##/self.imp_weights[act]
-            if self.train_all or self.ber:
+            if self.train_all:
                 self.history.append((x, act, full_rvec, 1.0/self.imp_weights))
-        elif self.ber:
+        else:
             self.history.append((x,act,r))
-        ##if self.t >= 10 and np.log2(self.t) == int(np.log2(self.t)):
-        if self.t >= 10 and self.t in self.training_points:
-            if self.verbose:
-                print("----Training----", flush=True)
+            
+        test_len = self.base_len
+        opt_rewards = []
+        while test_len < np.min(self.len, self.t):
             if self.use_reward_features:
-                ## self.leader = Argmax.weighted_argmax(self.B, self.history, self.weights, link=self.link, policy_type = self.policy_type, learning_alg = self.learning_alg)
-                self.leader = Argmax.argmax2(self.B, self.history, policy_type = self.policy_type, learning_alg = self.learning_alg)
-            else:
-                ## self.leader = Argmax.argmax(self.B, self.history, policy_type = self.policy_type, learning_alg = self.learning_alg)
-                self.leader = Argmax.reward_argmax(self.B, self.history, policy_type = self.policy_type, learning_alg = self.learning_alg)
+                ERM = Argmax.argmax2(self.B, self.history[-test_len:], 
+                                     policy_type = self.policy_type, learning_alg = self.learning_alg)
+            else:                
+                ERM = Argmax.reward_argmax(self.B, self.history[-test_len:], 
+                                           policy_type = self.policy_type, learning_alg = self.learning_alg) 
+            
+            l = self.base_len
+            i = 0
+            cum_r = 0
+            flag = False
+            while l < self.test_len:
+                bound = self.dev_cnt * np.sqrt(x.get_K() * l / self._get_eps())
+                
+                if l == self.base_len:
+                    cum_r += self.evaluate(ERM, self.history[-l:])
+                else:
+                    cum_r += self.evaluate(ERM, self.history[-l:-l/2])
+                    
+                if opt_rewards[i] > cum_r + bound:
+                    flag = True
+                    break
+                l *= 2
+                i += 1
+            if flag == True:
+                break
+            
+            opt_rewards.append(cum_r + self.evaluate(ERM, self.history[-l:-l/2]))
+            self.leader = ERM
+            test_len *= 2
+            
         self.t += 1
+
+    def evaluate(self, policy, data):
+        """
+        Evaluate a policy on a given dataset
+        """
+        
+        cum_r = 0;
+        for item in data:
+            if policy.get_action(item[0]) == item[1]:
+                if self.use_reward_features:
+                    cum_r += item[2] * item[3]
+                else:                
+                    cum_r += item[2]
+        
+        return cum_r;
 
     def _get_eps(self):
         """
         Return the current value of epsilon.
         """
-        return np.max([1.0/np.sqrt(self.t), self.eps])
+        return self.eps
+        #return np.max([1.0/np.sqrt(self.t), self.eps])
 
 class LinUCB(Semibandit):
     """
