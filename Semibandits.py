@@ -294,7 +294,7 @@ class AdaEpsGreedy(Semibandit):
         if "dev_cnt" in params.keys():
             self.dev_cnt = params['dev_cnt']
         else:
-            self.dev_cnt = 0.1
+            self.dev_cnt = 0.01
         
         if "len" in params.keys():
             self.len = params['len']
@@ -398,11 +398,11 @@ class AdaEpsGreedy(Semibandit):
             if self.train_all:
                 self.history.append((x, act, full_rvec, 1.0/self.imp_weights))
         else:
-            self.history.append((x,act,r))
+            self.history.append((x, act, r/self.imp_weights[act]))
             
         test_len = self.base_len
         opt_rewards = []
-        while test_len < np.min(self.len, self.t):
+        while test_len < np.min([self.len, self.t]):
             if self.use_reward_features:
                 ERM = Argmax.argmax2(self.B, self.history[-test_len:], 
                                      policy_type = self.policy_type, learning_alg = self.learning_alg)
@@ -414,13 +414,13 @@ class AdaEpsGreedy(Semibandit):
             i = 0
             cum_r = 0
             flag = False
-            while l < self.test_len:
+            while l < test_len:
                 bound = self.dev_cnt * np.sqrt(x.get_K() * l / self._get_eps())
                 
                 if l == self.base_len:
                     cum_r += self.evaluate(ERM, self.history[-l:])
                 else:
-                    cum_r += self.evaluate(ERM, self.history[-l:-l/2])
+                    cum_r += self.evaluate(ERM, self.history[-l:-int(l/2)])
                     
                 if opt_rewards[i] > cum_r + bound:
                     flag = True
@@ -430,10 +430,10 @@ class AdaEpsGreedy(Semibandit):
             if flag == True:
                 break
             
-            opt_rewards.append(cum_r + self.evaluate(ERM, self.history[-l:-l/2]))
+            opt_rewards.append(cum_r + self.evaluate(ERM, self.history[-l:-int(l/2)]))
             self.leader = ERM
             test_len *= 2
-            
+        #print("test_len = %d" % (test_len), flush=True)    
         self.t += 1
 
     def evaluate(self, policy, data):
@@ -445,7 +445,7 @@ class AdaEpsGreedy(Semibandit):
         for item in data:
             if policy.get_action(item[0]) == item[1]:
                 if self.use_reward_features:
-                    cum_r += item[2] * item[3]
+                    cum_r += item[2][item[1]] * item[3][item[1]]
                 else:                
                     cum_r += item[2]
         
@@ -1066,10 +1066,10 @@ if __name__=='__main__':
                         default=1000,
                         help='number of rounds', type=int)
     parser.add_argument('--dataset', action='store', choices=['synth','mq2007','mq2008', 'yahoo', 'mslr', 'mslrsmall', 'mslr30k', 'xor'])
-    parser.add_argument('--L', action='store', default=5, type=int)
+    parser.add_argument('--L', action='store', default=1, type=int)
     parser.add_argument('--I', action='store', default=0, type=int)
     parser.add_argument('--noise', action='store', default=None)
-    parser.add_argument('--alg', action='store' ,default='all', choices=['mini', 'eps', 'lin'])
+    parser.add_argument('--alg', action='store' ,default='all', choices=['mini', 'eps', 'lin', 'AdaEG'])
     parser.add_argument('--learning_alg', action='store', default=None, choices=[None, 'gb2', 'gb5', 'tree', 'lin'])
     parser.add_argument('--param', action='store', default=None)
     
@@ -1196,4 +1196,31 @@ if __name__=='__main__':
             np.savetxt(outdir+"epsall_%s_default_rewards_%d.out" % (Args.learning_alg, Args.I), r)
             np.savetxt(outdir+"epsall_%s_default_validation_%d.out" % (Args.learning_alg,Args.I), val_tmp)
             np.savetxt(outdir+"epsall_%s_default_time_%d.out" % (Args.learning_alg,Args.I), np.array([stop-start]))
+            
+    if Args.alg == "AdaEG":
+        if learning_alg is None:
+            print("Cannot run AdaEpsGreedy without learning algorithm")
+            sys.exit(1)
+        AdaEG = AdaEpsGreedy(B, learning_alg = learning_alg, classification=False)
+        if Args.param is not None:
+            if os.path.isfile(outdir+"AdaEGall_%s_%0.3f_rewards_%d.out" % (Args.learning_alg,Args.param,Args.I)):
+                print('---- ALREADY DONE ----')
+                sys.exit(0)
+            start = time.time()
+            (r,reg,val_tmp) = AdaEG.play(Args.T, verbose=True, validate=Bval, params={'weight': np.ones(Args.L), 'eps': Args.param, 'train_all': True})
+            stop = time.time()
+            np.savetxt(outdir+"AdaEGall_%s_%0.3f_rewards_%d.out" % (Args.learning_alg, Args.param,Args.I), r)
+            np.savetxt(outdir+"AdaEGall_%s_%0.3f_validation_%d.out" % (Args.learning_alg, Args.param,Args.I), val_tmp)
+            np.savetxt(outdir+"AdaEGall_%s_%0.3f_time_%d.out" % (Args.learning_alg, Args.param,Args.I), np.array([stop-start]))
+        else:
+            if os.path.isfile(outdir+"AdaEGall_%s_default_rewards_%d.out" % (Args.learning_alg,Args.I)):
+                print('---- ALREADY DONE ----')
+                sys.exit(0)
+            start = time.time()
+            (r,reg,val_tmp) = AdaEG.play(Args.T, verbose=True, validate=Bval, params={'weight': np.ones(Args.L), 'train_all': True})
+            stop = time.time()
+            np.savetxt(outdir+"AdaEGall_%s_default_rewards_%d.out" % (Args.learning_alg, Args.I), r)
+            np.savetxt(outdir+"AdaEGall_%s_default_validation_%d.out" % (Args.learning_alg,Args.I), val_tmp)
+            np.savetxt(outdir+"AdaEGall_%s_default_time_%d.out" % (Args.learning_alg,Args.I), np.array([stop-start]))        
+            
     print("---- DONE ----")
